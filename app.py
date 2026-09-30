@@ -176,8 +176,12 @@ def card_html(v, r):
     if not n:
         body = ('<div class="verdict miss"><span class="what">No game screens found</span></div>'
                 '<div class="extra">Open &ldquo;What the scanner saw&rdquo; below to check. '
-                "The stream may use a layout the scanner does not recognise.</div>")
+                "The stream may use a layout the scanner does not recognize.</div>")
         return '<div class="card">' + head + body + "</div>"
+    guess = ""
+    if r.get("method") in ("motion", "whole frame"):
+        guess = ('<div class="extra">&#9888; No clear game borders were visible, so the scanner guessed where the '
+                 "game is. Check &ldquo;What the scanner saw&rdquo; below.</div>")
     if k:
         what = f"{k} of {n} games hit a shiny" if n > 1 else "This game hit a shiny"
         verdict = f'<div class="verdict hit"><span class="what">&#10022; {what}</span><span class="pct">{pct:.0f}%</span></div>'
@@ -205,7 +209,7 @@ def card_html(v, r):
         extra = '<div class="extra">Also seen while the layout was different: ' + ", ".join(
             f'row {e["row"]} #{e["col"]} at {e["stamp"]}' for e in odd) + "</div>"
     meter = f'<div class="meter"><span style="width:{pct:.1f}%"></span></div>'
-    return '<div class="card">' + head + verdict + grid + meter + extra + "</div>"
+    return '<div class="card">' + head + verdict + grid + meter + guess + extra + "</div>"
 
 
 # ------------------------------------------------------------------ page
@@ -233,6 +237,67 @@ with st.expander("Options"):
     limit = o1.number_input("Latest videos to check on a channel page", 1, 100, 20)
     height = o2.selectbox("Video quality", [360, 480, 720], index=1,
                           help="Higher quality catches smaller sparkles but takes longer.")
+    s1, s2 = st.columns(2)
+    style_label = s1.selectbox(
+        "Sparkle style", ["Gold stars (Gen 3)", "Any bright sparkle (Gen 4-6, experimental)"],
+        help="The second option also catches blue and white sparkles, but it can give more false alarms.")
+    layout_mode = s2.selectbox(
+        "Game screens", ["Find automatically", "I will mark them"],
+        help="Automatic finds any game windows that have a visible edge, in any layout. If the picture under "
+             "\"What the scanner saw\" is wrong, mark the game boxes yourself.")
+    regions_text = ""
+    if layout_mode == "I will mark them":
+        st.caption("One game per line: x, y, width, height, as a percent of the video (0 to 100). "
+                   "Example for one game filling the right side: 25, 0, 75, 75")
+        regions_text = st.text_area("Game boxes", height=110, label_visibility="collapsed",
+                                    placeholder="1, 2, 36, 43\n63, 2, 36, 43")
+        p1, p2 = st.columns([2, 1], vertical_alignment="bottom")
+        preview_at = p1.number_input("Preview at (seconds into the video)", 0, 100000, 60)
+        preview_go = p2.button("Preview boxes")
+    else:
+        preview_go = False
+    style = "any" if style_label.startswith("Any") else "gold"
+    ignore_text = st.text_input("Ignore screens (optional)", placeholder="3",
+                                help="If the scanner counted something that is not a game, like your webcam, type its "
+                                     "number from the \"What the scanner saw\" picture. Separate several with commas.")
+    ignore = {int(x) for x in ignore_text.replace(" ", "").split(",") if x.isdigit()} if ignore_text else set()
+
+def _parse_boxes():
+    try:
+        regs = scanner.parse_regions(regions_text)
+    except ValueError as e:
+        st.markdown('<div class="note warn"><b>Check the game boxes.</b><br><span class="err">'
+                    + html.escape(str(e)) + "</span></div>", unsafe_allow_html=True)
+        st.stop()
+    if not regs:
+        st.markdown('<div class="note warn"><b>Add at least one game box</b> or switch back to '
+                    "finding the game screens automatically.</div>", unsafe_allow_html=True)
+        st.stop()
+    return regs
+
+
+regions = None
+if layout_mode == "I will mark them" and (go or preview_go):
+    regions = _parse_boxes()
+
+if preview_go:
+    if not url.strip():
+        st.markdown('<div class="note warn"><b>Add a link first.</b> Paste a video address above to preview on.</div>',
+                    unsafe_allow_html=True)
+    else:
+        purl = url.strip() if url.strip().startswith("http") else "https://" + url.strip()
+        try:
+            with st.spinner("Grabbing a frame..."):
+                pv = scanner.list_videos(purl, 1)[0][0]
+                frame = scanner.grab_frame(scanner.stream_url(pv["url"], int(height)), float(preview_at))
+            H_, W_ = frame.shape[:2]
+            st.caption("Green boxes are the game screens that will be scanned. The thin orange box is where the "
+                       "sparkle is looked for.")
+            st.image(cv2.cvtColor(scanner.draw_layout(frame, scanner.regions_to_screens(regions, W_, H_)),
+                                  cv2.COLOR_BGR2RGB))
+        except Exception as e:
+            st.markdown('<div class="note warn"><b>Could not preview.</b><br><span class="err">'
+                        + html.escape(str(e)[-300:]) + "</span></div>", unsafe_allow_html=True)
 
 if go and not url.strip():
     st.markdown('<div class="note warn"><b>Add a link first.</b> Paste a channel, VOD or clip address above.</div>',
@@ -269,6 +334,7 @@ if go and url.strip():
     summary = []
     for i, v in enumerate(keep, 1):
         slot = st.empty()
+        live = st.empty()
         slot.markdown(work_html(v["title"], i, len(keep)), unsafe_allow_html=True)
         try:
             src = scanner.stream_url(v["url"], height)
@@ -276,14 +342,24 @@ if go and url.strip():
             def on_progress(t, dur, v=v, i=i):
                 slot.markdown(work_html(v["title"], i, len(keep), t, dur), unsafe_allow_html=True)
 
-            r = scanner.scan_video(src, progress=on_progress, duration=v.get("duration"))
+            def on_preview(frame, screens, how):
+                with live.container():
+                    st.caption(f"What the scanner sees right now ({len(screens)} game screen"
+                               f"{'s' if len(screens) != 1 else ''}, found by: {how}). Green = game screen, "
+                               "orange = where it looks for the sparkle.")
+                    st.image(cv2.cvtColor(scanner.draw_layout(frame, screens), cv2.COLOR_BGR2RGB), width=520)
+
+            r = scanner.scan_video(src, progress=on_progress, duration=v.get("duration"),
+                                 regions=regions, style=style, on_preview=on_preview, ignore=ignore)
         except Exception as e:
             slot.empty()
+            live.empty()
             st.markdown('<div class="note warn"><b>Skipped &ldquo;' + html.escape(v["title"] or v["url"]) +
                         "&rdquo;.</b><br><span class=\"err\">" +
                         html.escape(str(e)[-300:]) + "</span></div>", unsafe_allow_html=True)
             continue
         slot.empty()
+        live.empty()
 
         st.markdown(card_html(v, r), unsafe_allow_html=True)
         if r["events"]:
@@ -292,10 +368,14 @@ if go and url.strip():
                     st.markdown(f"**Game {e['screen']}** (row {e['row']}, #{e['col']} from the left) at "
                                 f"[{e['stamp']}]({link_at(v['url'], e['t'])})")
                     st.image(cv2.cvtColor(e["frame"], cv2.COLOR_BGR2RGB), width=520)
-        if r["preview"]:
-            with st.expander("What the scanner saw"):
-                st.caption("Green boxes are the game screens it found. The thin orange box is where it looks for the sparkle.")
+        with st.expander("What the scanner saw", expanded=not r["n_screens"]):
+            if r["preview"]:
+                st.caption("Green boxes are the game screens it found, numbered. The thin orange box is where it looks "
+                           "for the sparkle. Something wrong? Type its number under Options, Ignore screens, or mark "
+                           "the boxes yourself.")
                 st.image(cv2.cvtColor(scanner.draw_layout(*r["preview"]), cv2.COLOR_BGR2RGB))
+            else:
+                st.caption("The video was too short to grab a picture from.")
         if r["chunks_without_layout"]:
             st.caption(f"{r['chunks_without_layout']} of {r['chunks']} five-minute sections had no game screens "
                        "(break or different scene) and were skipped.")

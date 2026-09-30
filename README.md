@@ -10,7 +10,9 @@ Shiny hunters often run several games at once. Paste a link and Shiny Calculator
 
 - Works on a channel videos page, a single VOD, or a clip
 - On a channel page, only scans videos with "shiny" (or a similar spelling, "sparkle", or a sparkle emoji) in the title
-- Finds the game windows on its own and re-checks the layout every 5 minutes
+- Finds the game windows on its own for any layout (and re-checks every 5 minutes), so nobody has to enter box values. You can still mark the boxes yourself if it gets one wrong
+- Shows "What the scanner saw" live while it scans each video, and again on every result, even when no game screens were found
+- Sparkle styles for gold Gen 3 stars or broader bright sparkles (Gen 4-6, experimental)
 - For each hit: the game (row and column), a timestamp link that opens the video at that moment, and a screenshot
 - Shiny percentage across all games
 - Light and dark mode
@@ -20,11 +22,30 @@ Shiny hunters often run several games at once. Paste a link and Shiny Calculator
 
 This is an early release, so please read this before filing a bug.
 
-- **Multi-game layouts only.** The scanner looks for several small, 3:2 game windows that stay in place (for example a grid of Game Boy Advance games). Streams that show a single large game, or a screen with a different shape, are reported as "No game screens found".
-- **Gen 3 sparkle only.** A shiny is detected by the small white and yellow stars that appear when the Pokemon enters battle. It does not compare sprite colors.
-- **Lightly tested.** It has been tested mainly on synthetic footage, so real streams may need threshold tuning.
+- **Automatic game-screen finding looks for windows with a visible edge.** It handles grids of any size, single large games and games that run to the edge of the stream, but it is only tested on generated layouts so far. A borderless webcam box can be mistaken for a game: check the picture under "What the scanner saw" and type its number under **Ignore screens**. If the guess is wrong, use **Game screens: I will mark them** (see below).
+- **Sparkles are checked against screenshots, not real footage yet.** Gen 3 (gold stars) through Gen 6 (blue-white stars) shiny screenshots and synthetic sparkles built from them are detected in tests, but it has not been tuned on real recorded video. Gens 4 to 6 need the **Any bright sparkle** style, which can give more false alarms.
+- **It does not compare sprite colors.** A shiny is detected only by its sparkle animation.
 
 If it misses a shiny or reports a false one, please open an issue (see Contributing).
+
+## Marking the game boxes
+
+If the scan says no game screens were found, tell it where the games are:
+
+1. Open **Options** and set **Game screens** to **I will mark them**.
+2. In the box, write one game per line as `x, y, width, height`, in percent of the video (0 to 100). For example, one game filling the right side of the frame:
+   ```
+   25, 0, 75, 75
+   ```
+   Two games side by side:
+   ```
+   2, 5, 41, 55
+   56, 5, 41, 55
+   ```
+3. Paste the video link, set **Preview at** to a time when the games are visible, and press **Preview boxes**. Green boxes show what will be scanned. Adjust the numbers until each box covers only a game screen (not the webcam or chat).
+4. Press **Scan for shinies**.
+
+Put the boxes on the game screen only. The scanner watches the upper-right part of each box, where the wild Pokemon usually appears.
 
 ## Quick start
 
@@ -63,8 +84,8 @@ ffmpeg is bundled through `imageio-ffmpeg`, so you do not need to install it sep
 
 1. `yt-dlp` turns the link into a direct stream address.
 2. `ffmpeg` decodes frames at low resolution (480p by default).
-3. Game windows are found by looking for solid 3:2 blocks that stay in place. Webcam and other tiles are ignored.
-4. Only the enemy area of each window is watched. A hit is 3 or more small bright blobs that newly appear, in at least 2 of 3 consecutive samples. Full-area flashes are rejected, and if several windows sparkle within 3 seconds of each other, it is treated as a scene transition instead of a shiny.
+3. Game windows are either the boxes you marked, or found automatically: it looks for long straight edges, keeps every rectangle whose four sides line up with them and has a game-like shape and detail, and uses motion as a fallback when no edges are visible.
+4. Only the enemy area of each window is watched. A hit is 3 or more small star-like blobs that newly appear (gold pixels where the blue drops, or pixels that suddenly get much brighter), in at least 2 of 3 consecutive samples. Full-area flashes are rejected, and if several windows sparkle within 3 seconds of each other, it is treated as a scene transition instead of a shiny.
 
 Tuning values are at the top of `scanner.py` (`SAMPLE_FPS`, `ENEMY`, `CHUNK`) and in `scan_video(threshold=...)`.
 
@@ -85,7 +106,7 @@ shiny-calculator/
 ## Troubleshooting
 
 - **A link stops working:** Twitch and YouTube change often. Update the downloader with `pip install -U yt-dlp`.
-- **"No game screens found":** the stream probably uses a layout the scanner does not recognize. See Current limitations.
+- **Wrong or missing game screens:** open "What the scanner saw". Extra box (like a webcam): put its number in Options, Ignore screens. Missing or misplaced: mark the game boxes yourself (see above).
 - **Slow scans:** the whole video is decoded, so long VODs take a while. 720p catches smaller stars but is slower.
 - **Hosting it online:** not recommended. Scans are heavy on CPU and bandwidth, and Twitch and YouTube often block requests from cloud servers. Running locally is the reliable way.
 
