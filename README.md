@@ -23,7 +23,7 @@ Shiny hunters often run several games at once. Paste a link and Shiny Calculator
 This is an early release, so please read this before filing a bug.
 
 - **Automatic game-screen finding looks for windows with a visible edge.** It handles grids of any size, single large games and games that run to the edge of the stream, but it is only tested on generated layouts so far. A borderless webcam box can be mistaken for a game: check the picture under "What the scanner saw" and type its number under **Ignore screens**. If the guess is wrong, use **Game screens: I will mark them** (see below).
-- **Sparkles are checked against screenshots, not real footage yet.** Gen 3 (gold stars) through Gen 6 (blue-white stars) shiny screenshots and synthetic sparkles built from them are detected in tests, but it has not been tuned on real recorded video. Gens 4 to 6 need the **Any bright sparkle** style, which can give more false alarms.
+- **Sparkles are checked against real shiny screenshots, not full stream footage yet.** Detection is tested on real screenshots of shiny sparkles from Gen 3 (gold stars) through Gen 6 (blue-white stars), but it has not been tuned on long recorded streams, so results on real VODs may vary. Gens 4 to 6 need the **Any bright sparkle** style, which can give more false alarms.
 - **It does not compare sprite colors.** A shiny is detected only by its sparkle animation.
 
 If it misses a shiny or reports a false one, please open an issue (see Contributing).
